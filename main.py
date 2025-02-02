@@ -50,7 +50,7 @@ if args.i:
             tm.blacklist_by_hole(arr[1], arr[0])
 
     if args.parse_only:
-        pprint(tm.tees)
+        pprint(tm.prep_tees())
         exit(0)
 
 

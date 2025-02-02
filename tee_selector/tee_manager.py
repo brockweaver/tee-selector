@@ -68,6 +68,13 @@ LEGEND (FORWARD)	243	258	105	470	102	376	419	296	115	2384	262	283	298	334	131	85
         matrix = self.transform(self.tees)
         return math.prod(len(lst) for lst in matrix)
     
+    def prep_tees(self):
+        # they may have manipulated the tee list, so let's write indexes now.
+        for i, t in enumerate(self.tees):
+            t.index = i
+        return self.tees
+
+    
     def find_in_range(self, path, lower, upper, max_count, chunk_size, abort_on_slow_progress):
 
         # pre-emptive garbage collection for large set purposes
@@ -79,8 +86,7 @@ LEGEND (FORWARD)	243	258	105	470	102	376	419	296	115	2384	262	283	298	334	131	85
             raise ValueError('lower must be greater than 0')
 
         # they may have manipulated the tee list, so let's write indexes now.
-        for i, t in enumerate(self.tees):
-            t.index = i
+        self.prep_tees()
 
         # # we need to create a map file.
         # # this is so the huge data file (.data) can be condensed considerably,

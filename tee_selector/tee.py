@@ -51,5 +51,5 @@ class Tee:
 
     def __repr__(self):
         # this is called when the class needs to be represented as a string. e.g. print(tee)
-        return f"Tee({self.name}, index={self.index}, holes={self.holes}, holes_by_yards={self.holes_by_yards}, front={self.front}, back={self.back}, total={self.total})"
+        return f"Tee({self.name}, index={self.index}, holes={self.holes}, front={self.front}, back={self.back}, total={self.total})"
     
