@@ -172,3 +172,4 @@ cython_debug/
 scripts/courses/tci.txt.data_10M
 scripts/courses/tci.txt.data
 scripts/.DS_Store
+scripts/courses/tci.txt.data_100M

@@ -1,6 +1,7 @@
 import csv
 import gc
 import json
+import math
 import os
 import struct
 import sys
@@ -8,6 +9,7 @@ from .tee import Tee
 import itertools 
 import random
 from datetime import datetime, timedelta
+import psutil
 
 class TeeManager:
     """Manages tee information"""
@@ -62,10 +64,16 @@ LEGEND (FORWARD)	243	258	105	470	102	376	419	296	115	2384	262	283	298	334	131	85
     def normalize_name(self, name):
         return name.lower().replace(" ", "").replace("(", "").replace(")", "").replace("-", "")
     
-    def find_in_range(self, path, lower, upper, count):
+    def count_possibilities(self):
+        matrix = self.transform(self.tees)
+        return math.prod(len(lst) for lst in matrix)
+    
+    def find_in_range(self, path, lower, upper, max_count, chunk_size, abort_on_slow_progress):
 
         # pre-emptive garbage collection for large set purposes
         gc.collect()
+        # and we'll handle garbage collection ourselves (at each big_chunk iteration)
+        gc.disable()
 
         if lower <= 0:
             raise ValueError('lower must be greater than 0')
@@ -103,54 +111,89 @@ LEGEND (FORWARD)	243	258	105	470	102	376	419	296	115	2384	262	283	298	334	131	85
         # Four tees  =>   4**18 => 68,719,476,736
 
         start = datetime.now()
-        print("Starting calculations...")
+
+        if (os.path.exists(path + ".data")):
+            print("Deleting previously generated file...")
+            os.remove(path + ".data")
+
+        process = psutil.Process(os.getpid())
+
+        print(f"Starting calculations:\n\tstarted_at: {start}\n\tfile: {path}\n\tlower: {lower:,}\n\tupper: {upper:,}\n\tmax_count: {max_count:,}\n\tchunk_size: {chunk_size:,}\n") #\n\tmemory usage: {process.memory_info().rss / 1024**2:.2f} MB\n")
+
 
         with open(path + ".data", "wb") as file:
-            chunk = 50000
-            big_chunk = chunk * 10
+            if chunk_size > 100000:
+                chunk_size = 100000
+            elif chunk_size < 100:
+                chunk_size = 100
+
+            big_chunk_size = chunk_size * 10
             results = []
             hits = set()
-            for i, combo in enumerate(self.capture_combos(matrix, lower, upper)):
+            misses = 0
+            for i, combo in enumerate(self.capture_combos(matrix, lower, upper, chunk_size)):
                 # a combo is a set of yardages.
                 # we need to map those back to their tee names for each hole, then record that result.
-                result = self.convert_yards_to_teemap_indexes(combo)
-                if result not in hits:
-                    results.append(result)
-                    hits.add(result)
-                    hit_count = len(hits)
-                    if hit_count >= count:
-                        break
-                    elif hit_count % chunk == 0:
-                        #file.writelines(x for x in results)
-                        file.write(struct.pack(f"{len(results)}Q", *results))  # Write as binary
-                        tick = datetime.now() - start
-                        print(f"\rFound: {hit_count:,}... ({tick})", end="", flush=True)
-                        results = []
+                if not combo:
+                    if abort_on_slow_progress:
+                        misses += chunk_size
+                        if misses > chunk_size * 1000:
+                            print(f"\n\nRandomization yielded no results in the last {misses:,} passes. Please run again with same parameters.")
+                            exit(2)
+                else:
+                    result = self.convert_yards_to_teemap_indexes(combo)
+                    if result not in hits:
+                        misses = 0
+                        results.append(result)
+                        hits.add(result)
+                        hit_count = len(hits)
+                        if hit_count >= max_count:
+                            break
+                        elif hit_count % chunk_size == 0:
+                            #file.writelines(x for x in results)
+                            file.write(struct.pack(f"{len(results)}Q", *results))  # Write as binary
+                            tick = datetime.now() - start
+                            #print(f"\rFound: {hit_count:,}... ({tick})", end="", flush=True)
+                            print(f"\nFound: {hit_count:,}... ({tick}) {process.memory_info().rss / 1024**2:.2f} MB\n")
+                            results = []
 
-                    if hit_count % big_chunk == 0:
-                        # mem = (sys.getsizeof(hits) + sum(map(sys.getsizeof, hits))) / 1024 / 1024
-                        gc.collect()
+                        if hit_count % big_chunk_size == 0:
+                            # mem = (sys.getsizeof(hits) + sum(map(sys.getsizeof, hits))) / 1024 / 1024
+                            gc.collect()
 
             if results:
                 #file.writelines(x for x in results)
                 file.write(struct.pack(f"{len(results)}Q", *results))  # Write as binary
 
             ended = datetime.now() - start
-            print(f"\nFound {hit_count:,} total combinations between {lower} and {upper}. Duration: {ended}")
+            print(f"\nFound {hit_count:,} total combinations between {lower} and {upper}. Duration: {ended}.") # Memory usage: {process.memory_info().rss / 1024**2:.2f} MB")
  
     # dynamically generate the cartesian product
     # of the matrix and filter out all those which don't fall within our expected range
-    def capture_combos(self, matrix, lower, upper):
+    def capture_combos(self, matrix, lower, upper, chunk_size):
         
         # Shuffle the columns (randomizing each row independently)
-        shuffled_matrix = [random.sample(row, len(row)) for row in matrix]
+        random.seed(int.from_bytes(os.urandom(8), "big")) 
+        reordered_matrix = [random.sample(row, len(row)) for row in matrix]
 
-        for combo in itertools.product(*shuffled_matrix):
+
+        #filtered_results = itertools.filterfalse(lambda x: sum(x) > upper or sum(x) < lower, itertools.product(*matrix))
+
+        skipped = 0
+        found = 0
+        for combo in itertools.product(*reordered_matrix):
+        #for combo in filtered_results:
             total = sum(combo)
             if total >= lower and total <= upper:
             #if total >= lower and total <= upper and total not in totals:
                 #totals[total] = total
+                found += 1
                 yield combo
+            else:
+                skipped += 1
+                if skipped % chunk_size == 0:
+                    print(f"\033[FFailed criteria: {skipped:>15,}\nMet criteria:    {found:>15,}", end="", flush=True)
+                    yield []
 
     def convert_yards_to_teemap_indexes(self, combo):
         rv = [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
