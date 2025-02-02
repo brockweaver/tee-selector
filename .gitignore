@@ -169,3 +169,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+scripts/courses/tci.txt.data_10M
+scripts/courses/tci.txt.data
+scripts/.DS_Store
